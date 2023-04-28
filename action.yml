@@ -5,6 +5,9 @@ inputs:
   dir:
     description: "The path to the project dir that should be built"
     default: "."
+  fapp-manifest:
+    description: "The path to the fapp-manifest.json file to use"
+    default: "fapp-manifest.json"
   arch:
     description: "The architecture to build for"
     default: ""
@@ -21,4 +24,4 @@ runs:
         ARCH_ARG=`[[ -n "${{ inputs.arch }}" ]] && echo "--arch ${{ inputs.arch }}" || echo ""`
         LIBS=`echo ${{ inputs.libs }} | tr "," "\n" | awk '{print "--lib "$1}' | paste -sd " " -`
         LIBS_ARGS=`[[ -n "${{ inputs.libs }}" ]] && echo $LIBS || echo ""`
-        fappcli-build build ${{ inputs.dir }} $ARCH_ARG $LIBS_ARGS
+        fappcli-build build ${{ inputs.dir }} $ARCH_ARG $LIBS_ARGS --fapp-manifest ${{ inputs.fapp-manifest }}
