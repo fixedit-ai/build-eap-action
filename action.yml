@@ -3,16 +3,69 @@ description: "Build the .eap package for an Axis ACAP"
 
 inputs:
   dir:
-    description: "The path to the project dir that should be built"
+    description: "The path to the project dir that should be built."
     default: "."
-  fapp-manifest:
-    description: "The path to the fapp-manifest.json file to use"
-    default: "fapp-manifest.json"
+  fixedit-manifest:
+    description: "The path to the fixedit-manifest.json file to use."
+    default: ""
+  sdk-name:
+    description: >
+      Name of the SDK to use to build the application. Accepted values:
+      'acap-sdk', 'acap-native-sdk', or 'linux'.
+    default: ""
+  sdk-version:
+    description: "The version of the SDK to use to build the application."
+    default: ""
   arch:
-    description: "The architecture to build for"
+    description: "The architecture to build for. Valid values: 'armv7hf', 'aarch64', 'x86_64'."
     default: ""
   libs:
-    description: "Comma separated list of libraries to use"
+    description: "List of libraries to use, separated by a new line."
+    default: ""
+  extra-package-files:
+    description: >
+      List of extra files to include in the package. The files should be relative to the
+      app dir. Separated by a new line.
+    default: ""
+  build-arg:
+    description: "Extra build arguments to pass to the build command. Separated by a new line."
+    default: ""
+  docker-target:
+    description: "The target in the Dockerfile to use when building a multi-stage docker image."
+    default: ""
+  dockerfile-name:
+    description: "The name/path of the Dockerfile to look for in the build dir."
+    default: ""
+  docker-lib-version:
+    description: "Version of the FixedIT prebuilt libraries to use as YYYY-MM-DD_HH-MM-SS or 'latest'."
+    default: ""
+  docker-lib-env:
+    description: >
+      Environment of the docker libraries to use.
+      Use 'prod' for released libraries, 'dev' for libraries in development.
+    default: ""
+  manifest-name:
+    description: "Name of the manifest file in the app dir."
+    default: ""
+  dump-build-dir:
+    description: "Dump the build dir from the container to a folder called build_root in the build dir."
+    default: false
+  dump-build-container:
+    description: "Save the build container to a new docker image."
+    default: false
+  build-image-only:
+    description: "Do not build the .eap file, only the docker image."
+    default: false
+  config-string:
+    description: >
+      Config string in JSON format, mutually exclusive with --config-file. This will
+      append to the configuration in the global .fixedit file and overwrite any shadowed
+      values.
+    default: ""
+  config-file:
+    description: >
+      Path to config file, mutually exclusive with --config-string. This will append to the
+      configuration in the global .fixedit file and overwrite any shadowed values.
     default: ""
 
 runs:
@@ -22,6 +75,65 @@ runs:
       shell: bash
       run: |
         ARCH_ARG=`[[ -n "${{ inputs.arch }}" ]] && echo "--arch ${{ inputs.arch }}" || echo ""`
-        LIBS=`echo ${{ inputs.libs }} | tr "," "\n" | awk '{print "--lib "$1}' | paste -sd " " -`
-        LIBS_ARGS=`[[ -n "${{ inputs.libs }}" ]] && echo $LIBS || echo ""`
-        fappcli-build build ${{ inputs.dir }} $ARCH_ARG $LIBS_ARGS --fapp-manifest ${{ inputs.fapp-manifest }}
+        SDK_NAME_ARG=`[[ -n "${{ inputs.sdk-name }}" ]] && echo "--sdk-name ${{ inputs.sdk-name }}" || echo ""`
+        SDK_VERSION_ARG=`[[ -n "${{ inputs.sdk-version }}" ]] && echo "--sdk-version ${{ inputs.sdk-version }}" || echo ""`
+        DOCKER_TARGET_ARG=`[[ -n "${{ inputs.docker-target }}" ]] && echo "--docker-target ${{ inputs.docker-target }}" || echo ""`
+        DOCKER_LIB_VER_ARG=`[[ -n "${{ inputs.docker-lib-version }}" ]] && echo "--docker-lib-version ${{ inputs.docker-lib-version }}" || echo ""`
+        DOCKER_LIB_ENV_ARG=`[[ -n "${{ inputs.docker-lib-env }}" ]] && echo "--docker-lib-env ${{ inputs.docker-lib-env }}" || echo ""`
+        DOCKERFILE_NAME_ARG=`[[ -n "${{ inputs.dockerfile-name }}" ]] && echo "--dockerfile-name ${{ inputs.dockerfile-name }}" || echo ""`
+        MANIFEST_NAME_ARG=`[[ -n "${{ inputs.manifest-name }}" ]] && echo "--manifest-name ${{ inputs.manifest-name }}" || echo ""`
+        FIXEDIT_MANIFEST_NAME_ARG=`[[ -n "${{ inputs.fixedit-manifest }}" ]] && echo "--fixedit-manifest ${{ inputs.fixedit-manifest }}" || echo ""`
+        DUMP_BUILD_DIR_ARG=`[[ "${{ inputs.dump-build-dir }}" == "true" ]] && echo "--dump-build-dir" || echo ""`
+        DUMP_BUILD_CONTAINER_ARG=`[[ "${{ inputs.dump-build-container }}" == "true" ]] && echo "--dump-build-container" || echo ""`
+        BUILD_IMAGE_ONLY_ARG=`[[ "${{ inputs.build-image-only }}" == "true" ]] && echo "--build-image-only" || echo ""`
+        CONFIG_STRING_ARG=`[[ -n "${{ inputs.config-string }}" ]] && echo "--config-string ${{ inputs.config-string }}" || echo ""`
+        CONFIG_FILE_ARG=`[[ -n "${{ inputs.config-file }}" ]] && echo "--config-file ${{ inputs.config-file }}" || echo ""`
+
+        # Handle list of libraries to use
+        LIBS_ARGS=""
+        if [[ -n "${{ inputs.libs }}" ]]; then
+          while IFS= read -r line; do
+            if [[ -n "$line" ]]; then
+              LIBS_ARGS+="--lib $line "
+            fi
+          done <<< "${{ inputs.libs }}"
+        fi
+
+        # Handle list of extra-package-files
+        EXTRA_PACKAGE_ARGS=""
+        if [[ -n "${{ inputs.extra-package-files }}" ]]; then
+          while IFS= read -r line; do
+            if [[ -n "$line" ]]; then
+              EXTRA_PACKAGE_ARGS+="--extra-package-files $line "
+            fi
+          done <<< "${{ inputs.extra-package-files }}"
+        fi
+
+        # Handle list of build-args
+        BUILD_ARGS=""
+        if [[ -n "${{ inputs.build-arg }}" ]]; then
+          while IFS= read -r line; do
+            if [[ -n "$line" ]]; then
+              BUILD_ARGS+="--build-arg $line "
+            fi
+          done <<< "${{ inputs.build-arg }}"
+        fi
+
+        fixeditcli-build build ${{ inputs.dir }} \
+          $ARCH_ARG \
+          $LIBS_ARGS \
+          $DOCKER_TARGET_ARG \
+          $DOCKERFILE_NAME_ARG \
+          $SDK_NAME_ARG \
+          $SDK_VERSION_ARG \
+          $DOCKER_LIB_VER_ARG \
+          $DOCKER_LIB_ENV_ARG \
+          $MANIFEST_NAME_ARG \
+          $DUMP_BUILD_DIR_ARG \
+          $DUMP_BUILD_CONTAINER_ARG \
+          $BUILD_IMAGE_ONLY_ARG \
+          $CONFIG_STRING_ARG \
+          $CONFIG_FILE_ARG \
+          $EXTRA_PACKAGE_ARGS \
+          $BUILD_ARGS \
+          $FIXEDIT_MANIFEST_NAME_ARG
